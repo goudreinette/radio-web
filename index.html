@@ -1,0 +1,339 @@
+<div id="app">
+    <button class="setup-serial" @click="setupSerial()">
+        Connect to device
+    </button>
+
+    <canvas class="glslCanvas noise-background"
+            data-fragment-url="shader.frag" :width="width" :height="height"
+            :style="{opacity: volumeNoise}"></canvas>
+
+    <div class="backgrounds">
+        <img class="background" v-for="channel in channels" :src="channel.background" :style="{opacity: channel.volume * .5}"/>
+    </div>
+
+    <audio class="noise" src="./audio/noise.wav" :volume="Math.min(volumeNoise / 4, 0.25)" autoplay></audio>
+
+    <div class="channels-container">
+        <svg>
+            <line :class="{closest: closestChannel === 0}" x1="0%" y1="0" x2="0%" y2="100%"/>
+            <line :class="{closest: closestChannel === 1}" x1="25%" y1="0" x2="25%" y2="100%"/>
+            <line :class="{closest: closestChannel === 2}" x1="50%" y1="0" x2="50%" y2="100%"/>
+            <line :class="{closest: closestChannel === 3}" x1="75%" y1="0" x2="75%" y2="100%"/>
+            <line id="cursor" :x1="cursorPosition" :x2="cursorPosition" y1="0" y2="100%" stroke="red"></line>
+        </svg>
+
+        <div class="grid">
+            <div class="channel" v-for="(channel, i) in channels" :class="{closest: closestChannel == i}">
+                <audio :src="channel.audioSrc" :volume="channel.volume" autoplay></audio>
+
+                <div class="title">
+                    {{channel.title}}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- Libraries -->
+<script src="https://rawgit.com/patriciogonzalezvivo/glslCanvas/master/dist/GlslCanvas.js"></script>
+<script src="https://unpkg.com/vue@next"></script>
+
+
+<script>
+    const app = Vue.createApp({
+        data() {
+            return {
+                channels: [
+                    {
+                        title: 'Silicium',
+                        audioSrc: './audio/v1halfgeleider.wav',
+                        background: './backgrounds/siliconenstaaf.png',
+                        volume: 0,
+                        distance: 0
+                    },
+                    {
+                        title: 'IC, transistor en halfgeleider',
+                        audioSrc: './audio/v1ic.wav',
+                        volume: 0,
+                        distance: 0
+                    },
+                    {
+                        title: 'Bedrijfscultuur bij NXP',
+                        audioSrc: './audio/v1ringkerngeheugen.wav',
+                        volume: 0,
+                        distance: 0
+                    },
+                    {
+                        title: 'Testen van chips',
+                        audioSrc: './audio/v1transistor.wav',
+                        volume: 0,
+                        distance: 0
+                    }
+                ],
+
+                cursor: 0, // 0 - 1
+                closestChannel: 0,
+                volumeNoise: 0,
+
+                width: innerWidth,
+                height: innerHeight,
+
+                message: 'Hello Vue!'
+            }
+        },
+
+        methods: {
+            async setupSerial() {
+                try {
+                    const port = await navigator.serial.requestPort();
+                    await port.open({baudRate: 9600});
+
+                    const decoder = new TextDecoderStream();
+
+                    port.readable.pipeTo(decoder.writable);
+
+                    const reader = decoder.readable
+                        .pipeThrough(new TransformStream(new LineBreakTransformer()))
+                        .getReader();
+
+                    while (true) {
+                        const {value, done} = await reader.read();
+                        if (value) {
+                            let number = parseInt(value);
+                            this.cursor = lerp(number / 4096, this.cursor, 0.9);
+                        }
+                        if (done) {
+                            debugger
+                            console.log('[readLoop] DONE', done);
+                            reader.releaseLock();
+                            break;
+                        }
+                    }
+
+                } catch (error) {
+                    console.error(error)
+                }
+            }
+        },
+
+        async mounted() {
+            addEventListener('mousemove', (e) => {
+                this.message = `Mouse position: ${e.pageX}, ${e.pageY}`
+
+                const rect = document.querySelector('.grid').getBoundingClientRect();
+                this.cursor = map(e.pageX, rect.x, rect.width + rect.x, 0, 1)
+            })
+        },
+
+        computed: {
+            cursorPosition() {
+                return `${this.cursor * 100}%`
+            }
+        },
+
+        watch: {
+            cursor() {
+                let closestDistance = 1;
+
+                for (let i = 0; i < this.channels.length; i++) {
+                    const channel = this.channels[i];
+                    channel.distance = Math.min(Math.abs(this.cursor - (i / (this.channels.length))) * 4, 1);
+
+                    if (channel.distance < closestDistance) {
+                        closestDistance = channel.distance;
+                        this.closestChannel = i;
+                    }
+
+                    channel.volume = 1 - channel.distance;
+                }
+
+                this.volumeNoise = Math.min(closestDistance, 0.5);
+            }
+        }
+    })
+
+
+    app.mount('#app')
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Utils
+    |--------------------------------------------------------------------------
+    */
+    function map(value, minInput, maxInput, minOutput, maxOutput) {
+        if (value < minInput) return minOutput;
+        if (value > maxInput) return maxOutput;
+        return ((value - minInput) * (maxOutput - minOutput)) / (maxInput - minInput) + minOutput;
+    }
+
+    // lerp function
+    function lerp(start, end, amt) {
+        return (1 - amt) * start + amt * end;
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | LineBreakTransformer
+    |--------------------------------------------------------------------------
+    */
+    class LineBreakTransformer {
+        constructor() {
+            // A container for holding stream data until a new line.
+            this.chunks = "";
+        }
+
+        transform(chunk, controller) {
+            // Append new chunks to existing chunks.
+            this.chunks += chunk;
+            // For each line breaks in chunks, send the parsed lines out.
+            const lines = this.chunks.split("\r\n");
+            this.chunks = lines.pop();
+            lines.forEach((line) => controller.enqueue(line));
+        }
+
+        flush(controller) {
+            // When the stream is closed, flush any remaining chunks out.
+            controller.enqueue(this.chunks);
+        }
+    }
+</script>
+
+
+<style>
+    * {
+        box-sizing: border-box;
+    }
+
+    body {
+        background: black;
+        color: white;
+        margin: 0;
+        font-family: Inter;
+    }
+
+    .noise-background, img.background {
+        position: fixed;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transition: .3s ease-out;
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Fonts
+    |--------------------------------------------------------------------------
+    */
+    @font-face {
+        font-family: 'Inter';
+        font-weight: 400;
+        src: url(https://rsms.me/inter/font-files/Inter-Regular.woff2?v=3.15) format('woff2'),
+        url(https://rsms.me/inter/font-files/Inter-Regular.woff?v=3.15) format('woff');
+    }
+
+    /* bold version */
+    @font-face {
+        font-family: 'Inter';
+        font-weight: 700;
+        src: url(https://rsms.me/inter/font-files/Inter-Bold.woff2?v=3.15) format('woff2'),
+        url(https://rsms.me/inter/font-files/Inter-Bold.woff?v=3.15) format('woff');
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Header
+    |--------------------------------------------------------------------------
+    */
+    button.setup-serial {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        z-index: 10;
+        padding: 10px;
+        background: none;
+        border: 1px solid white;
+        color: white;
+        font-family: Inter;
+        font-size: 16px;
+        cursor: pointer;
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | SVG
+    |--------------------------------------------------------------------------
+    */
+    svg {
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 2;
+        position: relative;
+    }
+
+    svg line {
+        stroke-width: 2;
+        stroke: white;
+    }
+
+    svg line.closest {
+        opacity: 1;
+        filter: drop-shadow(0px 0px 5px white);
+    }
+
+    svg line#cursor {
+        stroke-width: 5;
+        stroke: red;
+        filter: drop-shadow(0px 0px 5px red);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Grid
+    |--------------------------------------------------------------------------
+    */
+    .channels-container {
+        padding: 0 10vw;
+        position: relative;
+    }
+
+    .grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        width: calc(100% - 20vw);
+        height: 100%;
+        position: absolute;
+        top: 0;
+    }
+
+
+    .channel {
+        padding: 20px;
+
+    }
+
+    .channel .title {
+        border: 1px solid white;
+        width: max-content;
+        padding: 8px 10px;
+        transition: all .25s ease-out;
+        backdrop-filter: blur(20px);
+    }
+
+    .channel.closest {
+        /*trans*/
+    }
+
+    .channel.closest .title {
+        background: rgba(255, 255, 255, 0.4);
+        transform: scale(1.05);
+    }
+</style>

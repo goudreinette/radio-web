@@ -1,0 +1,92 @@
+<button id="connectButton">Connect via Serial Port</button>
+
+<div id="target"></div>
+
+<p><small>Demo from <a href="https://codelabs.developers.google.com/codelabs/web-serial/" target="_blank" rel="noopener">Google Developers</a> codelabs.</small></p>
+
+
+<script>
+    document.getElementById('connectButton').addEventListener('click', () => {
+        if (navigator.serial) {
+            connectSerial();
+        } else {
+            alert('Web Serial API not supported.');
+        }
+    });
+
+    async function connectSerial() {
+        const log = document.getElementById('target');
+
+        try {
+            const port = await navigator.serial.requestPort();
+            await port.open({ baudRate: 9600 });
+
+            const decoder = new TextDecoderStream();
+
+            const readableStreamClosed = port.readable.pipeTo(decoder.writable);
+
+            const inputStream = decoder.readable;
+            const reader = decoder.readable
+                .pipeThrough(new TransformStream(new LineBreakTransformer()))
+                .getReader();
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (value) {
+                    // log.textContent += value;
+                    //
+                    let number = parseInt(value);
+                    console.log(number / 4096)
+                }
+                if (done) {
+                    debugger
+                    console.log('[readLoop] DONE', done);
+                    reader.releaseLock();
+                    break;
+                }
+            }
+
+        } catch (error) {
+            log.innerHTML = error;
+        }
+    }
+
+    class LineBreakTransformer {
+        constructor() {
+            // A container for holding stream data until a new line.
+            this.chunks = "";
+        }
+
+        transform(chunk, controller) {
+            // Append new chunks to existing chunks.
+            this.chunks += chunk;
+            // For each line breaks in chunks, send the parsed lines out.
+            const lines = this.chunks.split("\r\n");
+            this.chunks = lines.pop();
+            lines.forEach((line) => controller.enqueue(line));
+        }
+
+        flush(controller) {
+            // When the stream is closed, flush any remaining chunks out.
+            controller.enqueue(this.chunks);
+        }
+    }
+</script>
+
+<style>
+    #target {
+        font-family: monospace;
+        white-space: pre;
+        background-color: #eee;
+        padding: 1em;
+    }
+
+    #connectButton {
+        padding: 1em;
+        background-color: #eee;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+
+    </style>
