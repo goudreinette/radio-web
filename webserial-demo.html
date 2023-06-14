@@ -33,8 +33,6 @@
             while (true) {
                 const { value, done } = await reader.read();
                 if (value) {
-                    // log.textContent += value;
-                    //
                     let number = parseInt(value);
                     console.log(number / 4096)
                 }

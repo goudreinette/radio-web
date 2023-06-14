@@ -1,7 +1,11 @@
 <div id="app">
-    <button class="setup-serial" @click="setupSerial()">
-        Connect to device
-    </button>
+
+    <img class="setup-serial"
+         :class="{connected: connected}"
+         src="./knob.svg"
+         @click="setupSerial()"
+         :style="{transform: `rotate(${cursor * 340 + 35}deg)`}"
+    >
 
     <canvas class="glslCanvas noise-background"
             data-fragment-url="shader.frag" :width="width" :height="height"
@@ -11,7 +15,7 @@
         <img class="background" v-for="channel in channels" :src="channel.background" :style="{opacity: channel.volume * .5}"/>
     </div>
 
-    <audio class="noise" src="./audio/noise.wav" :volume="Math.min(volumeNoise / 4, 0.25)" autoplay></audio>
+    <audio class="noise" src="./audio/noise.wav" :volume="Math.min(volumeNoise / 4, 0.25)" autoplay loop></audio>
 
     <div class="channels-container">
         <svg>
@@ -24,7 +28,7 @@
 
         <div class="grid">
             <div class="channel" v-for="(channel, i) in channels" :class="{closest: closestChannel == i}">
-                <audio :src="channel.audioSrc" :volume="channel.volume" autoplay></audio>
+                <audio :src="channel.audioSrc" :volume="channel.volume" autoplay loop></audio>
 
                 <div class="title">
                     {{channel.title}}
@@ -79,7 +83,9 @@
                 width: innerWidth,
                 height: innerHeight,
 
-                message: 'Hello Vue!'
+                message: 'Hello Vue!',
+
+                connected: false
             }
         },
 
@@ -97,6 +103,8 @@
                         .pipeThrough(new TransformStream(new LineBreakTransformer()))
                         .getReader();
 
+                    this.connected = true;
+
                     while (true) {
                         const {value, done} = await reader.read();
                         if (value) {
@@ -104,7 +112,6 @@
                             this.cursor = lerp(number / 4096, this.cursor, 0.9);
                         }
                         if (done) {
-                            debugger
                             console.log('[readLoop] DONE', done);
                             reader.releaseLock();
                             break;
@@ -250,18 +257,46 @@
     | Header
     |--------------------------------------------------------------------------
     */
-    button.setup-serial {
-        position: absolute;
+    .setup-serial {
+        position: fixed;
         top: 10px;
-        left: 10px;
+        right: 10px;
         z-index: 10;
         padding: 10px;
         background: none;
-        border: 1px solid white;
-        color: white;
-        font-family: Inter;
-        font-size: 16px;
         cursor: pointer;
+    }
+
+    .setup-serial:not(.connected) {
+        animation: blink 1s infinite;
+    }
+
+    .setup-serial.connected {
+        /*animation: rotate-a-bit-every-now-and-then 10s infinite;*/
+    }
+
+    @keyframes blink {
+        0% {
+            opacity: 1;
+        }
+        50% {
+            opacity: 0.5;
+        }
+        100% {
+            opacity: 1;
+        }
+    }
+
+    @keyframes rotate-a-bit-every-now-and-then {
+        0% {
+            transform: rotate(0deg);
+        }
+        50% {
+            transform: rotate(20deg);
+        }
+        100% {
+            transform: rotate(0deg);
+        }
     }
 
 
